@@ -1,46 +1,77 @@
 import subprocess
+import time
 
 # USIエンジンのパス
-engine_path = "C:\\shogi\\engine\\YaneuraOu.exe"
+engine_path = "C:\\Users\\hikar\\yaneuraou\\YaneuraOu_NNUE-tournament-clang++-avx2.exe"
 
-# エンジンを起動
-engine = subprocess.Popen(engine_path, stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True)
+try:
+    engine = subprocess.Popen(engine_path, stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True)
+    print("✅ 将棋エンジンを起動しました")
+except FileNotFoundError:
+    print("❌ エンジンのパスが正しくありません！")
+    exit()
+except Exception as e:
+    print(f"❌ エンジン起動エラー: {e}")
+    exit()
 
 def send_command(cmd):
     """エンジンにコマンドを送る"""
+    print(f"📝 コマンド送信: {cmd}")
     engine.stdin.write(cmd + "\n")
     engine.stdin.flush()
 
-def read_output():
-    """エンジンの出力を読み取る"""
+def read_output(timeout=10):
+    """エンジンの出力を一定時間内で取得"""
+    start_time = time.time()
     while True:
+        if time.time() - start_time > timeout:
+            print("⚠️ 応答がありません")
+            return None
         line = engine.stdout.readline().strip()
-        print(line)
-        if "bestmove" in line or "checkmate" in line:
+        if line:
+            print(f"🔹 {line}")  # 出力を表示
+        if "usiok" in line or "readyok" in line or "bestmove" in line:
             return line
 
-# USIエンジンを起動
+# ① USIエンジンの起動確認
 send_command("usi")
+response = read_output()
+
+if response is None:
+    print("❌ エンジンが応答しませんでした")
+    engine.terminate()
+    exit()
+
+# ② USIオプションを設定
+send_command("setoption name EvalDir value C:\\Users\\hikar\\yaneuraou\\eval")
+send_command("setoption name USI_OwnBook value false")  # 定跡機能を無効化
+send_command("setoption name MultiPV value 1")  # MultiPV を1に設定
+send_command("setoption name USI_Hash value 256")  # メモリ使用量を削減
+
+# ③ エンジンの準備確認
 send_command("isready")
-read_output()
+response = read_output()
+if response is None:
+    print("❌ エンジンが準備できません")
+    engine.terminate()
+    exit()
 
-# 詰将棋の局面をセット（ここは適宜変更）
-tsume_position = "position sfen 7k/9/9/9/9/9/9/9/4K4 b R2G2N2S3L4P 1"
-send_command(tsume_position)
+print("✅ エンジンの起動確認OK！")
 
-# 詰み手順を探索
-send_command("go mate 10")  # 10手以内で詰み探索
-result1 = read_output()
+# ④ 初期局面をセット
+send_command("position startpos")
 
-send_command("go mate 10")  # もう一度別の手順を探索
-result2 = read_output()
+# ⑤ 10手先まで読む → 無制限に探索して数秒後に停止
+send_command("go infinite")
+time.sleep(3)  # 3秒間計算を続ける
+send_command("stop")  # 探索を強制停止
 
-# 異なる詰み筋があるか判定
-if result1 != result2:
-    print("余詰めの可能性あり")
-else:
-    print("唯一の詰み手順")
-    
-# エンジンを終了
+# ⑥ 指し手を取得
+best_move = read_output(timeout=10)
+if best_move is not None:
+    print("✅ エンジンの指し手:", best_move)
+
+# ⑦ エンジンを終了
 send_command("quit")
 engine.terminate()
+print("✅ エンジンを終了しました")
